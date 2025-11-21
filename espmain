@@ -1,0 +1,70 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local LP = Players.LocalPlayer
+local teamsFolder = Workspace:WaitForChild("_te_ams_")
+local attackersFolder = teamsFolder:WaitForChild("attackers")
+local defendersFolder = teamsFolder:WaitForChild("defenders")
+local ESPObjects = {}
+local function createESP(model, team)
+    if ESPObjects[model] then return end
+    local isEnemy = (team == "attackers")
+    local color = isEnemy and Color3.fromRGB(255, 55, 55) or Color3.fromRGB(55, 135, 255)
+    local highlight = Instance.new("Highlight")
+    highlight.FillColor = color
+    highlight.OutlineColor = Color3.new(1, 1, 1)
+    highlight.FillTransparency = 0.65
+    highlight.OutlineTransparency = 0.3
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.Parent = model
+    local billboard = Instance.new("BillboardGui")
+    billboard.Size = UDim2.new(0, 80, 0, 20)
+    billboard.StudsOffset = Vector3.new(0, 2.8, 0)
+    billboard.AlwaysOnTop = true
+    billboard.MaxDistance = 500
+    local hrp = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Torso") or model.PrimaryPart
+    if hrp then billboard.Adornee = hrp end
+    billboard.Parent = model
+    local info = Instance.new("TextLabel")
+    info.Size = UDim2.new(1, 0, 1, 0)
+    info.BackgroundTransparency = 1
+    info.TextColor3 = color
+    info.TextSize = 10
+    info.Font = Enum.Font.GothamBold
+    info.TextStrokeColor3 = Color3.new(0, 0, 0)
+    info.TextStrokeTransparency = 0
+    info.TextScaled = false
+    info.Text = model.Name
+    info.Parent = billboard
+    ESPObjects[model] = {highlight = highlight, billboard = billboard, info = info}
+end
+local function removeESP(model)
+    local data = ESPObjects[model]
+    if data then
+        if data.highlight then data.highlight:Destroy() end
+        if data.billboard then data.billboard:Destroy() end
+        ESPObjects[model] = nil
+    end
+end
+local function scanTeams()
+    for _, model in pairs(attackersFolder:GetChildren()) do
+        if model:IsA("Model") and model.Name ~= LP.Name then createESP(model, "attackers") end
+    end
+    for _, model in pairs(defendersFolder:GetChildren()) do
+        if model:IsA("Model") and model.Name ~= LP.Name then createESP(model, "defenders") end
+    end
+end
+attackersFolder.ChildAdded:Connect(function(c) if c:IsA("Model") and c.Name ~= LP.Name then task.wait(0.1) createESP(c, "attackers") end end)
+attackersFolder.ChildRemoved:Connect(function(c) removeESP(c) end)
+defendersFolder.ChildAdded:Connect(function(c) if c:IsA("Model") and c.Name ~= LP.Name then task.wait(0.1) createESP(c, "defenders") end end)
+defendersFolder.ChildRemoved:Connect(function(c) removeESP(c) end)
+scanTeams()
+RunService.RenderStepped:Connect(function()
+    for model, data in pairs(ESPObjects) do
+        if not model or not model.Parent then removeESP(model)
+        else
+            local hum = model:FindFirstChild("Humanoid")
+            if hum then data.info.Text = model.Name .. " " .. math.floor(hum.Health) end
+        end
+    end
+end)
