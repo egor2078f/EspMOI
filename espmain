@@ -1,70 +1,102 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
+local Camera = Workspace.CurrentCamera
 local LP = Players.LocalPlayer
-local teamsFolder = Workspace:WaitForChild("_te_ams_")
+local Settings = {BoxThickness = 1.5, TextSize = 11, Font = Enum.Font.Code, EnemyColor = Color3.fromRGB(255, 40, 40), AllyColor = Color3.fromRGB(40, 150, 255), HealthBarWidth = 2}
+local teamsFolder = Workspace:WaitForChild("_te_ams_", 10)
+if not teamsFolder then return end
 local attackersFolder = teamsFolder:WaitForChild("attackers")
 local defendersFolder = teamsFolder:WaitForChild("defenders")
 local ESPObjects = {}
-local function createESP(model, team)
+local MainGui = Instance.new("ScreenGui")
+MainGui.Name = tostring(math.random(100000, 999999))
+MainGui.ResetOnSpawn = false
+MainGui.IgnoreGuiInset = true
+if syn and syn.protect_gui then syn.protect_gui(MainGui) MainGui.Parent = CoreGui elseif gethui then MainGui.Parent = gethui() else MainGui.Parent = CoreGui end
+local function worldToScreen(pos)
+    local screenPos, onScreen = Camera:WorldToViewportPoint(pos)
+    return Vector2.new(screenPos.X, screenPos.Y), onScreen, screenPos.Z
+end
+local function createESP(model, teamName)
     if ESPObjects[model] then return end
-    local isEnemy = (team == "attackers")
-    local color = isEnemy and Color3.fromRGB(255, 55, 55) or Color3.fromRGB(55, 135, 255)
-    local highlight = Instance.new("Highlight")
-    highlight.FillColor = color
-    highlight.OutlineColor = Color3.new(1, 1, 1)
-    highlight.FillTransparency = 0.65
-    highlight.OutlineTransparency = 0.3
-    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    highlight.Parent = model
-    local billboard = Instance.new("BillboardGui")
-    billboard.Size = UDim2.new(0, 80, 0, 20)
-    billboard.StudsOffset = Vector3.new(0, 2.8, 0)
-    billboard.AlwaysOnTop = true
-    billboard.MaxDistance = 500
-    local hrp = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Torso") or model.PrimaryPart
-    if hrp then billboard.Adornee = hrp end
-    billboard.Parent = model
-    local info = Instance.new("TextLabel")
-    info.Size = UDim2.new(1, 0, 1, 0)
-    info.BackgroundTransparency = 1
-    info.TextColor3 = color
-    info.TextSize = 10
-    info.Font = Enum.Font.GothamBold
-    info.TextStrokeColor3 = Color3.new(0, 0, 0)
-    info.TextStrokeTransparency = 0
-    info.TextScaled = false
-    info.Text = model.Name
-    info.Parent = billboard
-    ESPObjects[model] = {highlight = highlight, billboard = billboard, info = info}
+    local isEnemy = (teamName == "attackers")
+    local baseColor = isEnemy and Settings.EnemyColor or Settings.AllyColor
+    local boxOutline = Instance.new("Frame")
+    boxOutline.BackgroundTransparency = 1
+    boxOutline.Parent = MainGui
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = Settings.BoxThickness
+    stroke.Color = baseColor
+    stroke.Parent = boxOutline
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.TextColor3 = Color3.new(1, 1, 1)
+    nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+    nameLabel.TextStrokeTransparency = 0.2
+    nameLabel.TextSize = Settings.TextSize
+    nameLabel.Font = Settings.Font
+    nameLabel.Text = model.Name
+    nameLabel.Parent = MainGui
+    local hpBg = Instance.new("Frame")
+    hpBg.BackgroundColor3 = Color3.new(0, 0, 0)
+    hpBg.BorderSizePixel = 0
+    hpBg.Parent = MainGui
+    local hpFill = Instance.new("Frame")
+    hpFill.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+    hpFill.BorderSizePixel = 0
+    hpFill.Parent = hpBg
+    ESPObjects[model] = {box = boxOutline, stroke = stroke, label = nameLabel, hpBg = hpBg, hpFill = hpFill, team = teamName, color = baseColor}
 end
 local function removeESP(model)
     local data = ESPObjects[model]
     if data then
-        if data.highlight then data.highlight:Destroy() end
-        if data.billboard then data.billboard:Destroy() end
+        if data.box then data.box:Destroy() end
+        if data.label then data.label:Destroy() end
+        if data.hpBg then data.hpBg:Destroy() end
         ESPObjects[model] = nil
     end
 end
-local function scanTeams()
-    for _, model in pairs(attackersFolder:GetChildren()) do
-        if model:IsA("Model") and model.Name ~= LP.Name then createESP(model, "attackers") end
-    end
-    for _, model in pairs(defendersFolder:GetChildren()) do
-        if model:IsA("Model") and model.Name ~= LP.Name then createESP(model, "defenders") end
+local function updateESP()
+    for model, data in pairs(ESPObjects) do
+        if not model or not model.Parent then removeESP(model) continue end
+        local hrp = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Torso")
+        local hum = model:FindFirstChild("Humanoid")
+        local head = model:FindFirstChild("Head")
+        if not hrp or not hum or hum.Health <= 0 then data.box.Visible = false data.label.Visible = false data.hpBg.Visible = false return end
+        local rootPos = hrp.Position
+        local topPos3D = head and (head.Position + Vector3.new(0, 0.5, 0)) or (rootPos + Vector3.new(0, 2.5, 0))
+        local botPos3D = rootPos - Vector3.new(0, 3.0, 0)
+        local topScreen, topVis = worldToScreen(topPos3D)
+        local botScreen, botVis = worldToScreen(botPos3D)
+        if not topVis and not botVis then data.box.Visible = false data.label.Visible = false data.hpBg.Visible = false continue end
+        local height = math.abs(botScreen.Y - topScreen.Y)
+        local width = height * 0.55
+        data.box.Size = UDim2.new(0, width, 0, height)
+        data.box.Position = UDim2.new(0, topScreen.X - (width / 2), 0, topScreen.Y)
+        data.box.Visible = true
+        data.label.Position = UDim2.new(0, topScreen.X, 0, topScreen.Y - 15)
+        data.label.Size = UDim2.new(0, 200, 0, 15)
+        data.label.AnchorPoint = Vector2.new(0.5, 0)
+        data.label.Visible = true
+        local healthPct = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+        local barX = (topScreen.X - (width / 2)) - 5
+        data.hpBg.Size = UDim2.new(0, Settings.HealthBarWidth, 0, height)
+        data.hpBg.Position = UDim2.new(0, barX, 0, topScreen.Y)
+        data.hpBg.Visible = true
+        data.hpFill.Size = UDim2.new(1, 0, healthPct, 0)
+        data.hpFill.Position = UDim2.new(0, 0, 1 - healthPct, 0)
+        data.hpFill.BackgroundColor3 = Color3.fromHSV(healthPct * 0.3, 1, 1)
     end
 end
-attackersFolder.ChildAdded:Connect(function(c) if c:IsA("Model") and c.Name ~= LP.Name then task.wait(0.1) createESP(c, "attackers") end end)
+local function scanFolders()
+    for _, v in pairs(attackersFolder:GetChildren()) do if v:IsA("Model") and v.Name ~= LP.Name then createESP(v, "attackers") end end
+    for _, v in pairs(defendersFolder:GetChildren()) do if v:IsA("Model") and v.Name ~= LP.Name then createESP(v, "defenders") end end
+end
+attackersFolder.ChildAdded:Connect(function(c) task.wait(0.1) if c:IsA("Model") and c.Name ~= LP.Name then createESP(c, "attackers") end end)
 attackersFolder.ChildRemoved:Connect(function(c) removeESP(c) end)
-defendersFolder.ChildAdded:Connect(function(c) if c:IsA("Model") and c.Name ~= LP.Name then task.wait(0.1) createESP(c, "defenders") end end)
+defendersFolder.ChildAdded:Connect(function(c) task.wait(0.1) if c:IsA("Model") and c.Name ~= LP.Name then createESP(c, "defenders") end end)
 defendersFolder.ChildRemoved:Connect(function(c) removeESP(c) end)
-scanTeams()
-RunService.RenderStepped:Connect(function()
-    for model, data in pairs(ESPObjects) do
-        if not model or not model.Parent then removeESP(model)
-        else
-            local hum = model:FindFirstChild("Humanoid")
-            if hum then data.info.Text = model.Name .. " " .. math.floor(hum.Health) end
-        end
-    end
-end)
+scanFolders()
+RunService.RenderStepped:Connect(updateESP)
